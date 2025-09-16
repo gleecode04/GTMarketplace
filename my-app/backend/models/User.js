@@ -43,7 +43,25 @@ const userSchema = new mongoose.Schema({
         type:mongoose.Schema.Types.ObjectId,
         ref:'User',
         default:[]
-    }]
+    }],
+    // JWT Authentication fields
+    refreshToken: {
+        type: String,
+        default: null
+    },
+    authProvider: {
+        type: String,
+        enum: ['firebase', 'jwt', 'google'],
+        default: 'firebase'
+    },
+    lastLogin: {
+        type: Date,
+        default: null
+    },
+    isActive: {
+        type: Boolean,
+        default: true
+    }
     /*
     pastTransactions: {
         //define a trasaction schema?

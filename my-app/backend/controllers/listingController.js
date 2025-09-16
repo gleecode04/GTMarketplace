@@ -1,5 +1,6 @@
 import Listing from '../models/Listing.js';
 import User from '../models/User.js';
+import { getOrSetCache, CacheKeys, CACHE_TTL, invalidateListingCaches, invalidateUserCaches } from '../utils/cache.js';
 
 export const addListing = async (req, res) => {
     try {
@@ -18,6 +19,10 @@ export const addListing = async (req, res) => {
           );
           console.log("userid at listing", id)
         
+        // Invalidate relevant caches
+        await invalidateListingCaches(savedListing._id);
+        await invalidateUserCaches(id);
+        
         res.status(201).json({message: "listing saved", newListing});
     } catch (err) {
         res.status(500).json({error: err.message});
@@ -27,13 +32,25 @@ export const addListing = async (req, res) => {
 export const getListingById = async (req, res) => {
     try {
         const {id} = req.params; 
-        const listing = await Listing.findById(id);  // Query the database for the listing
+        
+        // Use cache with fallback to database
+        const listing = await getOrSetCache(
+            CacheKeys.listingById(id),
+            async () => {
+                const listingData = await Listing.findById(id);
+                if (!listingData) {
+                    return null;
+                }
+                return listingData;
+            },
+            CACHE_TTL.LISTING_DETAILS
+        );
 
         if (!listing) {
-            return res.status(404).json({ message: "Listing not found" });  // Handle case where listing doesn't exist
+            return res.status(404).json({ message: "Listing not found" });
         }
 
-        res.status(200).json(listing);  // Return the found listing
+        res.status(200).json(listing);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -42,13 +59,22 @@ export const getListingById = async (req, res) => {
 export const getListingsBySeller = async (req, res) => {
     try {
         const {id} = req.params; 
-        const listings = await Listing.find({seller: id});  // Query the database for the listings
+        
+        // Use cache with fallback to database
+        const listings = await getOrSetCache(
+            CacheKeys.listingsBySeller(id),
+            async () => {
+                const listingsData = await Listing.find({seller: id});
+                return listingsData || [];
+            },
+            CACHE_TTL.USER_LISTINGS
+        );
 
         if (!listings || listings.length === 0) {
-            return res.status(404).json({ message: "No listings found for the specified seller" });  // Handle case where seller has no listings
+            return res.status(404).json({ message: "No listings found for the specified seller" });
         }
 
-        res.status(200).json(listings);  // Return the found listings
+        res.status(200).json(listings);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -58,7 +84,16 @@ export const getListingsBySeller = async (req, res) => {
 export const getListingsByCondition = async (req, res) => {
     try {
         const {condition} = req.params;
-        const listings = await Listing.find({ condition }).select('title price');
+        
+        // Use cache with fallback to database
+        const listings = await getOrSetCache(
+            CacheKeys.listingsByCondition(condition),
+            async () => {
+                const listingsData = await Listing.find({ condition }).select('title price');
+                return listingsData || [];
+            },
+            CACHE_TTL.CATEGORY_RESULTS
+        );
         
         res.status(200).json(listings);
     } catch (err) {
@@ -69,8 +104,17 @@ export const getListingsByCondition = async (req, res) => {
 
 export const getActiveListings = async (req, res) => {
     try {
-        const listings = await Listing.find({ status : 'available'}).select('title image price category condition');
-        console.log(listings)
+        // Use cache with fallback to database - this is the most frequently accessed endpoint
+        const listings = await getOrSetCache(
+            CacheKeys.activeListings(),
+            async () => {
+                const listingsData = await Listing.find({ status : 'available'}).select('title image price category condition');
+                return listingsData || [];
+            },
+            CACHE_TTL.LISTINGS
+        );
+        
+        console.log(`Active listings: ${listings.length} items`);
         res.status(200).json({data: listings});
     } catch (err) {
         res.status(500).json( {error: err.message});
@@ -81,8 +125,15 @@ export const getListingByCategory = async (req, res) => {
     try {
         const {category} = req.params;
         
-        // Query the database for the category
-        const listings = await Listing.findByCategory(category);
+        // Use cache with fallback to database
+        const listings = await getOrSetCache(
+            CacheKeys.listingsByCategory(category),
+            async () => {
+                const listingsData = await Listing.findByCategory(category);
+                return listingsData || [];
+            },
+            CACHE_TTL.CATEGORY_RESULTS
+        );
 
         // Case where listing is not found
         if (listings.length === 0) {
@@ -109,8 +160,15 @@ export const getListingByPrice = async (req, res) => {
         const minPrice = parseFloat(min);
         const maxPrice = parseFloat(max);
 
-        // Query the database for the price range
-        const listings = await Listing.findByPriceRange(minPrice, maxPrice);
+        // Use cache with fallback to database
+        const listings = await getOrSetCache(
+            CacheKeys.listingsByPrice(minPrice, maxPrice),
+            async () => {
+                const listingsData = await Listing.findByPriceRange(minPrice, maxPrice);
+                return listingsData || [];
+            },
+            CACHE_TTL.PRICE_RESULTS
+        );
 
         // Case where listing is not found
         if (listings.length === 0) {
@@ -150,6 +208,10 @@ export const updateListing = async (req, res) => {
             return res.status(404).json({ message: 'Listing not found' });
         }
 
+        // Invalidate relevant caches
+        await invalidateListingCaches(listingId);
+        await invalidateUserCaches(updatedListing.seller);
+
         res.status(200).json({ listing: updatedListing });
     } 
     catch (error) {
@@ -171,6 +233,11 @@ export const deleteListing = async (req, res) => {
             { $pull: { listings: listingId, inactiveListings: listingId } }, // Remove the listing ID from the array
             { new: true } // Return the updated user document
         );
+
+        // Invalidate relevant caches
+        await invalidateListingCaches(listingId);
+        await invalidateUserCaches(deletedListing.seller);
+
         return res.status(200).json({ message: 'Listing deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: 'Failed to delete listing', error });

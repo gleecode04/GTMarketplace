@@ -1,7 +1,7 @@
 import express from 'express';
 import User from '../models/User.js';
 import bcrypt from 'bcrypt'
-import {updateUser, getUserById, getUserByEmail, addInterestedListing, removeInterestedListing, getUserListings, getUserInterestedListings, addContact, getUserInactiveListings, addInactiveListing, removeInactiveListing, removeActiveListing, addActiveListing } from '../controllers/userController.js';
+import {updateUser, getUserById, getUserByEmail, addInterestedListing, removeInterestedListing, getUserListings, getUserInterestedListings, addContact, getUserInactiveListings, addInactiveListing, removeInactiveListing, removeActiveListing, addActiveListing, loginWithJWT, registerWithJWT, refreshJWTToken, logoutJWT } from '../controllers/userController.js';
 
 const router = express.Router();
 
@@ -82,5 +82,20 @@ router.get('/:id/inactiveListings', getUserInactiveListings);
 
 // add new contact
 router.post('/addContact', addContact)
+
+// JWT Authentication Routes (Available but not integrated into main login flow yet)
+// These routes are ready to use when you want to switch to JWT authentication
+
+// JWT Login route
+router.post('/auth/login', loginWithJWT);
+
+// JWT Register route  
+router.post('/auth/register', registerWithJWT);
+
+// JWT Token refresh route
+router.post('/auth/refresh', refreshJWTToken);
+
+// JWT Logout route
+router.post('/auth/logout', logoutJWT);
 
 export default router;
